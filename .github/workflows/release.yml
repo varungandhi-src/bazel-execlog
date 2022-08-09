@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bazelRef:
+        description: 'Which bazel branch/tag/SHA to use'
+        default: 'master'
+
+jobs:
+  build-and-upload:
+    name: 'Build and upload artifacts'
+    strategy:
+      matrix:
+        platform: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          repository: 'bazelbuild/bazel'
+          ref: ${{ inputs.bazelRef }}
+      - name: Install Bazel
+        run: |
+          if ! which bazelisk; then
+            sudo npm install --location=global @bazel/bazelisk
+          fi
+      - name: Build
+        run: |
+          bazel build //src/tools/execlog:all
+      - name: Create release
+        run: |
+          touch notes
+          TAG="bazel-$(git rev-parse --short HEAD)"
+          echo 'Download using a one-liner:' >> notes
+          echo '' >> notes
+          echo '```bash' >> notes
+          echo "TAG=\"$TAG\" \\" >> notes
+          echo 'RELEASE_URL="https://github.com/varungandhi-src/bazel-execlog/releases/download/$TAG" \' >> notes
+          echo 'OS="$(uname -s | tr' "'[:upper:]'" "'[:lower:]' )" '\' >> notes
+          echo 'curl -L "$RELEASE_URL/execlog-$OS-$(uname -m).tar.gz" \' >> notes
+          echo '  | tar xzf -' >> notes
+          echo '```' >> notes
+          gh release create --notes-file notes "$TAG" -R varungandhi-src/bazel-execlog
+      - name: Upload release artifact
+        run: |
+          TARBALL_PATH="execlog-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m).tar.gz"
+          tar -C ./bazel-bin/src/tools -czf execlog
+          gh release upload --clobber "bazel-$(git rev-parse --short HEAD)" "$TARBALL_PATH" -R varungandhi-src/bazel-execlog
